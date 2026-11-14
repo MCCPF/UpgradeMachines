@@ -14,6 +14,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,7 +24,9 @@ import java.util.UUID;
 /**
  * Sneak + right-click a supported block to start an upgrade by 1 level. No wand or other item
  * is needed. A plain (non-sneaking) right-click is left untouched so the block still
- * opens/works normally. Three confirm styles are supported (see gui.style in config.yml):
+ * opens/works normally, and so is a sneak + right-click while the main hand holds something
+ * placeable (a block, redstone, a bucket...), so players can still build against machines.
+ * Three confirm styles are supported (see gui.style in config.yml):
  * - "inventory" (default): opens the confirm/cancel GUI built by UpgradeConfirmGui.
  * - "actionbar": shows an action-bar prompt with the price/effect; sneak+right-clicking the
  *   SAME block again within gui.actionbar.timeout-seconds confirms it (no GUI at all) - meant
@@ -57,8 +61,15 @@ public class UpgradeToolListener implements Listener {
 
         Player player = event.getPlayer();
 
-        // We're handling this ourselves - don't let it also open the block normally.
+        // Holding something placeable in the main hand = the player wants to place it against
+        // the machine (that's what sneaking is for in vanilla). Leave both hand events alone.
+        if (isPlaceable(player.getInventory().getItemInMainHand())) return;
+
+        // We're handling this ourselves - don't let it also open the block normally, and don't
+        // let the off-hand item get placed/used on the machine either.
         event.setCancelled(true);
+        // The off-hand event fires as a second copy of the same click: only cancel it.
+        if (event.getHand() != EquipmentSlot.HAND) return;
 
         if (!player.hasPermission("upgrademachine.use")) {
             player.sendMessage("§cคุณไม่มีสิทธิ์อัพเกรดเครื่องจักร");
@@ -90,6 +101,15 @@ public class UpgradeToolListener implements Listener {
             case ACTIONBAR -> promptActionBar(player, block, type, current, target, max);
             default -> player.openInventory(UpgradeConfirmGui.build(block, type, current, target, max, manager, economy));
         }
+    }
+
+    /** True for items that put a block or fluid in the world: blocks, redstone, string, seeds, buckets... */
+    private static boolean isPlaceable(ItemStack item) {
+        if (item == null || item.isEmpty()) return false;
+        Material material = item.getType();
+        if (material.isBlock()) return true;
+        if (material.isItem() && material.asItemType().hasBlockType()) return true;
+        return material.name().endsWith("_BUCKET") && material != Material.MILK_BUCKET;
     }
 
     private void promptActionBar(Player player, Block block, MachineType type, int current, int target, int max) {
